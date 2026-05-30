@@ -15,23 +15,6 @@ const quickReplies = [
   { label: "Beginner gym routine", icon: Zap },
 ];
 
-const botResponses: Record<string, string> = {
-  default: "That's a great question! Based on your profile and fitness goals, I'd recommend starting with a balanced approach. Would you like me to create a personalized plan?",
-  "workout plan": "Here's a customised 5-day plan:\n\n**Day 1 – Push**\n• Bench Press 4×8\n• Overhead Press 3×10\n• Tricep Dips 3×12\n\n**Day 2 – Pull**\n• Deadlifts 4×5\n• Pull-ups 3×8\n• Bicep Curls 3×12\n\n**Day 3 – Rest**\n\n**Day 4 – Legs**\n• Squats 4×8 • Leg Press 3×12\n\n**Day 5 – Cardio + Core**\n• 20 min HIIT • Plank 3×60s\n\nWant me to adjust for your equipment?",
-  "weight loss": "For weight loss:\n\n**Nutrition (80% of the battle)**\n• 300–500 cal deficit daily\n• Protein: 1.6–2g/kg body weight\n\n**Exercise**\n• 3–4 days strength training\n• 2–3 days HIIT cardio\n• 7,000–10,000 steps/day\n\n**Key habits**\n• Sleep 7–9 hours\n• Drink 3L+ water daily\n\nWant a personalised meal plan?",
-  cardio: "To improve cardio:\n\n**Week 1–2:** 20–30 min moderate, 3×/week\n**Week 3–4:** Intervals — 8×1 min hard / 2 min easy\n**Week 5–6:** One long slow run (40–50 min) + two interval sessions\n**Week 7+:** Mix cycling, swimming, rowing\n\nSyncing with your Strava data to personalise further!",
-  beginner: "Perfect beginner routine:\n\n**3 Days/Week (Mon, Wed, Fri)**\n1. Bodyweight Squats 3×15\n2. Push-ups 3×10\n3. Dumbbell Rows 3×12\n4. Lunges 3×10\n5. Plank 3×30s\n6. Glute Bridges 3×15\n\nFocus on form, rest 60–90s between sets. After 4 weeks we'll progress you to a 4-day split. You've got this!",
-};
-
-function getBotResponse(msg: string): string {
-  const l = msg.toLowerCase();
-  if (l.includes("workout") || l.includes("plan") || l.includes("routine")) return botResponses["workout plan"];
-  if (l.includes("weight loss") || l.includes("diet") || l.includes("lose")) return botResponses["weight loss"];
-  if (l.includes("cardio") || l.includes("running") || l.includes("endurance")) return botResponses.cardio;
-  if (l.includes("beginner") || l.includes("start")) return botResponses.beginner;
-  return botResponses.default;
-}
-
 function formatTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -54,13 +37,11 @@ export default function ChatWidget() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Load persisted bot name
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY_NAME);
     if (stored) { setBotName(stored); setNameInput(stored); }
   }, []);
 
-  // Greeting on first open
   useEffect(() => {
     if (open && messages.length === 0) {
       const greeting = user
@@ -76,8 +57,7 @@ export default function ChatWidget() {
 
   function saveName() {
     const name = nameInput.trim() || DEFAULT_BOT_NAME;
-    setBotName(name);
-    setNameInput(name);
+    setBotName(name); setNameInput(name);
     localStorage.setItem(STORAGE_KEY_NAME, name);
     setEditingName(false);
   }
@@ -87,20 +67,30 @@ export default function ChatWidget() {
     setTimeout(() => nameInputRef.current?.focus(), 50);
   }
 
-  const sendMessage = useCallback((text: string) => {
+  const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isTyping) return;
+
     const userMsg: Message = { id: Date.now(), role: "user", text, time: formatTime() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + 1, role: "assistant", text: getBotResponse(text), time: formatTime() },
-      ]);
+
+    try {
+      const history = [...messages, userMsg].map(({ role, text }) => ({ role, content: text }));
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      const data = await res.json();
+      const reply = res.ok ? (data.reply ?? "Sorry, I didn't get a response. Please try again.") : "Something went wrong. Please try again.";
+      setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: reply, time: formatTime() }]);
+    } catch {
+      setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", text: "Network error — please check your connection and try again.", time: formatTime() }]);
+    } finally {
       setIsTyping(false);
-    }, 1000 + Math.random() * 700);
-  }, [isTyping]);
+    }
+  }, [isTyping, messages]);
 
   function clearChat() {
     setMessages([{
@@ -112,7 +102,6 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* Floating bubble */}
       {!open && (
         <button
           onClick={() => { setOpen(true); setMinimised(false); }}
@@ -123,17 +112,13 @@ export default function ChatWidget() {
         </button>
       )}
 
-      {/* Chat panel */}
       {open && (
-        <div
-          className={`fixed bottom-6 right-6 z-50 w-[360px] max-w-[calc(100vw-2rem)] bg-[#111827] border border-[#374151] rounded-2xl shadow-2xl flex flex-col transition-all duration-200 ${minimised ? "h-14" : "h-[520px]"}`}
-        >
+        <div className={`fixed bottom-6 right-6 z-50 w-[360px] max-w-[calc(100vw-2rem)] bg-[#111827] border border-[#374151] rounded-2xl shadow-2xl flex flex-col transition-all duration-200 ${minimised ? "h-14" : "h-[520px]"}`}>
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-[#374151] flex-shrink-0">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#34D399] to-[#10B981] flex items-center justify-center flex-shrink-0">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-
             <div className="flex-1 min-w-0">
               {editingName ? (
                 <div className="flex items-center gap-1">
@@ -152,21 +137,16 @@ export default function ChatWidget() {
               ) : (
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold text-[#F9FAFB] truncate">{botName}</span>
-                  <button
-                    onClick={startEditing}
-                    className="p-0.5 rounded text-[#6B7280] hover:text-[#A78BFA] transition-colors flex-shrink-0"
-                    title="Rename coach"
-                  >
+                  <button onClick={startEditing} className="p-0.5 rounded text-[#6B7280] hover:text-[#A78BFA] transition-colors flex-shrink-0" title="Rename coach">
                     <Pencil className="w-3 h-3" />
                   </button>
                 </div>
               )}
               <div className="flex items-center gap-1 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#34D399] inline-block" />
-                <span className="text-[10px] text-[#6B7280]">Online</span>
+                <span className="text-[10px] text-[#6B7280]">Powered by Grok</span>
               </div>
             </div>
-
             <div className="flex items-center gap-1 flex-shrink-0">
               <button onClick={clearChat} className="p-1.5 rounded-lg text-[#6B7280] hover:text-white hover:bg-[#1F2937] transition-all" title="Clear chat">
                 <RotateCcw className="w-3.5 h-3.5" />
